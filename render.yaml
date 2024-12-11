@@ -3,7 +3,7 @@ services:
     name: bulk-email-sender-api
     env: python
     buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && python -m gunicorn app:app
+    startCommand: gunicorn --chdir backend 'app:app' --log-file -
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0

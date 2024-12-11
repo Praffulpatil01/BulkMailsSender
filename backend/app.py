@@ -14,7 +14,8 @@ from pathlib import Path
 app = Flask(__name__)
 CORS(app, origins=[
     "http://localhost:3000",
-    "https://InboxWave.netlify.app"
+    "https://InboxWave.netlify.app",
+    "https://bulkmailssender.onrender.com"
 ])
 
 # Load environment variables

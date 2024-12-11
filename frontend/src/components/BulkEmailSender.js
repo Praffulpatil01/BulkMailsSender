@@ -66,7 +66,8 @@ const BulkEmailSender = () => {
         formData.append('attachment', attachment);
       }
       
-      const response = await axios.post('http://127.0.0.1:5000/api/send-emails', formData, {
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+      const response = await axios.post(`${apiUrl}/api/send-emails`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }

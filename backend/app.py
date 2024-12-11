@@ -147,7 +147,7 @@ def update_credentials():
         email = data.get('email')
         password = data.get('password')
 
-        if not email or not password:
+        if not email or not password: 
             return jsonify({
                 'message': 'Email and password are required',
                 'status': 'error'

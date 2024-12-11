@@ -2,12 +2,10 @@ services:
   - type: web
     name: bulk-email-sender-api
     env: python
-    buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn --chdir backend 'app:app'
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0
-      - key: SENDER_EMAIL
-        sync: false
-      - key: SENDER_PASSWORD
-        sync: false
+      - key: PYTHONPATH
+        value: backend

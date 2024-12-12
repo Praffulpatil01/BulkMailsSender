@@ -1,7 +1,5 @@
-from fastapi import FastAPI, HTTPException, Form, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from typing import Optional
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -11,24 +9,18 @@ from dotenv import load_dotenv
 import time
 import json
 import re
+from pathlib import Path
+
+app = Flask(__name__)
+CORS(app, origins=[
+    "http://localhost:3000",
+    "https://InboxWave.netlify.app",
+    "https://bulkmailssender.onrender.com",
+    "https://your-render-service-name.onrender.com"
+])
 
 # Load environment variables
 load_dotenv()
-
-app = FastAPI(title="Bulk Email Sender")
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://InboxWave.netlify.app",
-        "https://bulkmailssender.onrender.com"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Email configuration
 SMTP_SERVER = "smtp.gmail.com"
@@ -37,42 +29,59 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB in bytes
 
-def is_valid_email(email: str) -> bool:
+def is_valid_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
+    return re.match(pattern, email) is not None
 
-@app.post("/api/send-emails")
-async def send_emails(
-    emails: str = Form(...),
-    subject: str = Form(...),
-    content: str = Form(...),
-    attachment: Optional[UploadFile] = File(None)
-):
+@app.route('/api/send-emails', methods=['POST'])
+def send_emails():
     try:
-        email_list = json.loads(emails)
+        # Get form data
+        emails = json.loads(request.form['emails'])
+        subject = request.form['subject']
+        content = request.form['content']
         
-        # Remove duplicates and validate emails
-        unique_emails = list(dict.fromkeys([email.strip() for email in email_list if email.strip()]))
-        valid_emails = [email for email in unique_emails if is_valid_email(email)]
-        invalid_emails = [email for email in unique_emails if not is_valid_email(email)]
+        # Handle file attachment
+        attachment_file = None
+        if 'attachment' in request.files:
+            file = request.files['attachment']
+            if file.filename:
+                # Check file size
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)
+                
+                if file_size > MAX_FILE_SIZE:
+                    return jsonify({
+                        'message': 'File size exceeds 25MB limit',
+                        'status': 'error'
+                    }), 400
+                
+                attachment_file = file
 
+        # Remove duplicates while preserving order
+        emails = list(dict.fromkeys([email.strip() for email in emails if email.strip()]))
+        
+        print(f"Processing {len(emails)} unique emails:", emails)
+        
+        # Validate emails
+        valid_emails = [email for email in emails if is_valid_email(email)]
+        invalid_emails = [email for email in emails if not is_valid_email(email)]
+        
         if not valid_emails:
-            raise HTTPException(status_code=400, detail="No valid email addresses provided")
-
-        # Check attachment size
-        if attachment:
-            content = await attachment.read()
-            if len(content) > MAX_FILE_SIZE:
-                raise HTTPException(status_code=400, detail="File size exceeds 25MB limit")
-            await attachment.seek(0)
+            return jsonify({
+                'message': 'No valid email addresses provided',
+                'status': 'error'
+            }), 400
 
         successful_sends = 0
         failed_sends = 0
         error_messages = []
 
-        # Send emails
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+        try:
+            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            print("SMTP login successful")
 
             for email in valid_emails:
                 try:
@@ -81,60 +90,118 @@ async def send_emails(
                     msg['To'] = email
                     msg['Subject'] = subject
 
-                    # Add text content
+                    # Attach text content
                     msg.attach(MIMEText(content, 'plain'))
 
-                    # Add attachment if present
-                    if attachment:
-                        file_content = await attachment.read()
-                        part = MIMEApplication(file_content, Name=attachment.filename)
-                        part['Content-Disposition'] = f'attachment; filename="{attachment.filename}"'
+                    # Attach file if present
+                    if attachment_file:
+                        attachment_file.seek(0)
+                        part = MIMEApplication(
+                            attachment_file.read(),
+                            Name=attachment_file.filename
+                        )
+                        part['Content-Disposition'] = f'attachment; filename="{attachment_file.filename}"'
                         msg.attach(part)
-                        await attachment.seek(0)
 
                     server.send_message(msg)
                     successful_sends += 1
-                    time.sleep(0.1)  # Rate limiting
-
+                    print(f"Successfully sent to {email}")
+                    
                 except Exception as e:
                     failed_sends += 1
-                    error_messages.append(f"Failed to send to {email}: {str(e)}")
+                    error_msg = f"Failed to send to {email}: {str(e)}"
+                    error_messages.append(error_msg)
+                    print(error_msg)
+                
+                time.sleep(0.1)
 
-        return JSONResponse({
-            "message": f"Successfully sent to {successful_sends} recipients. Failed: {failed_sends}. Invalid emails: {len(invalid_emails)}",
-            "successful_sends": successful_sends,
-            "failed_sends": failed_sends,
-            "invalid_emails": invalid_emails,
-            "error_messages": error_messages,
-            "status": "success" if successful_sends > 0 else "partial_failure"
+            server.quit()
+            print("SMTP connection closed")
+
+        except Exception as smtp_error:
+            print(f"SMTP Error: {str(smtp_error)}")
+            return jsonify({
+                'message': f'SMTP Error: {str(smtp_error)}',
+                'status': 'error'
+            }), 500
+
+        result_message = (
+            f'Successfully sent to {successful_sends} recipients. '
+            f'Failed: {failed_sends}. '
+            f'Invalid emails: {len(invalid_emails)}'
+        )
+
+        return jsonify({
+            'message': result_message,
+            'successful_sends': successful_sends,
+            'failed_sends': failed_sends,
+            'invalid_emails': invalid_emails,
+            'error_messages': error_messages,
+            'status': 'success' if successful_sends > 0 else 'partial_failure'
         })
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Server Error: {str(e)}")
+        return jsonify({
+            'message': str(e),
+            'status': 'error'
+        }), 500
 
-@app.post("/api/update-credentials")
-async def update_credentials(email: str = Form(...), password: str = Form(...)):
+@app.route('/api/update-credentials', methods=['POST'])
+def update_credentials():
     try:
+        data = request.json
+        email = data.get('email')
+        password = data.get('password')
+
+        if not email or not password:
+            return jsonify({
+                'message': 'Email and password are required',
+                'status': 'error'
+            }), 400
+
+        # Update .env file
+        env_path = Path('.env')
         env_content = f"""SENDER_EMAIL={email}
 SENDER_PASSWORD={password}"""
         
-        with open('.env', 'w') as f:
-            f.write(env_content)
+        env_path.write_text(env_content)
         
         # Reload environment variables
         load_dotenv(override=True)
         
-        return {"message": "Credentials updated successfully", "status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({
+            'message': 'Credentials updated successfully',
+            'status': 'success'
+        })
 
-@app.get("/api/get-sender-email")
-async def get_sender_email():
-    try:
-        return {"email": os.getenv('SENDER_EMAIL'), "status": "success"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error updating credentials: {str(e)}")
+        return jsonify({
+            'message': str(e),
+            'status': 'error'
+        }), 500
+
+@app.route('/api/get-sender-email', methods=['GET'])
+def get_sender_email():
+    try:
+        return jsonify({
+            'email': os.getenv('SENDER_EMAIL'),
+            'status': 'success'
+        })
+    except Exception as e:
+        return jsonify({
+            'message': str(e),
+            'status': 'error'
+        }), 500
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)

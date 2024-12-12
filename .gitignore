@@ -2,6 +2,7 @@
 node_modules/
 __pycache__/
 venv/
+env/
 
 # Environment variables
 .env
@@ -17,3 +18,10 @@ venv/
 .vscode/
 .idea/
 .cursor/ 
+
+# Python
+*.py[cod]
+*$py.class
+
+# Logs
+*.log 

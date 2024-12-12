@@ -9,7 +9,8 @@ const EmailSettings = ({ onClose, onUpdate }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://127.0.0.1:5000/api/update-credentials', {
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
+      const response = await axios.post(`${apiUrl}/api/update-credentials`, {
         email: senderEmail,
         password: senderPassword
       });

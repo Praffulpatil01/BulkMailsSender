@@ -19,7 +19,8 @@ const BulkEmailSender = () => {
 
   const fetchSenderEmail = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:5000/api/get-sender-email');
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
+      const response = await axios.get(`${apiUrl}/api/get-sender-email`);
       if (response.data.email) {
         setSenderEmail(response.data.email);
       }
@@ -66,7 +67,7 @@ const BulkEmailSender = () => {
         formData.append('attachment', attachment);
       }
       
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
       const response = await axios.post(`${apiUrl}/api/send-emails`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
